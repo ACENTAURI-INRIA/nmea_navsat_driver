@@ -221,7 +221,7 @@ class Ros2NMEADriver(Node):
                 current_gga.hdop = hdop
                 current_gga.undulation = data['undulation']
                 current_gga.undulation_units = data['undulation_units']
-                current_gga.diff_age = data['diff_age']
+                current_gga.diff_age = int(data['diff_age'])
                 current_gga.station_id = data['station_id']
                 self.gga_pub.publish(current_gga)
 
