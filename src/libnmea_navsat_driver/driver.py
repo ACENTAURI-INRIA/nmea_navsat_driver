@@ -37,6 +37,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix, NavSatStatus, TimeReference
 from geometry_msgs.msg import TwistStamped, QuaternionStamped
+from nmea_msgs.msg import Gpgga
 from tf_transformations import quaternion_from_euler
 from libnmea_navsat_driver.checksum_utils import check_nmea_checksum
 from libnmea_navsat_driver import parser
@@ -53,10 +54,14 @@ class Ros2NMEADriver(Node):
         self.time_ref_source = self.declare_parameter('time_ref_source', 'gps').value
         self.use_RMC = self.declare_parameter('useRMC', False).value
         self.use_GNSS_time = self.declare_parameter('use_GNSS_time', False).value
+        self.publishGGA = self.declare_parameter('publishGGA', False).value
         self.valid_fix = False
 
         if not self.use_GNSS_time:
             self.time_ref_pub = self.create_publisher(TimeReference, 'time_reference', 10)
+
+        if self.publishGGA:
+            self.gga_pub = self.create_publisher(Gpgga, 'gga', 10)
 
         # epe = estimated position error
         self.default_epe_quality0 = self.declare_parameter('epe_quality0', 1000000).value
@@ -198,6 +203,27 @@ class Ros2NMEADriver(Node):
             current_fix.position_covariance[8] = (2 * hdop * self.alt_std_dev) ** 2  # FIXME
 
             self.fix_pub.publish(current_fix)
+
+            if self.publishGGA:
+                current_gga = Gpgga()
+                current_gga.header.frame_id = current_fix.header.frame_id
+                current_gga.header.stamp = current_fix.header.stamp
+                current_gga.message_id = data['talker_id']
+                current_gga.utc_seconds = data['utc_seconds']
+                current_gga.lat = current_fix.latitude
+                current_gga.lat_dir = data['latitude_direction']
+                current_gga.lon = current_fix.longitude
+                current_gga.lon_dir = data['longitude_direction']
+                current_gga.gps_qual = fix_type
+                current_gga.alt = altitude
+                current_gga.altitude_units = data['altitude_units']
+                current_gga.num_sats = data['num_satellites']
+                current_gga.hdop = hdop
+                current_gga.undulation = data['undulation']
+                current_gga.undulation_units = data['undulation_units']
+                current_gga.diff_age = data['diff_age']
+                current_gga.station_id = data['station_id']
+                self.gga_pub.publish(current_gga)
 
             if not (math.isnan(data['utc_time'][0]) or self.use_GNSS_time):
                 current_time_ref.time_ref = rclpy.time.Time(seconds=data['utc_time'][0], nanoseconds=data['utc_time'][1]).to_msg()

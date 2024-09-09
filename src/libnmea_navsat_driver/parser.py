@@ -52,6 +52,11 @@ def safe_int(field):
     except ValueError:
         return 0
 
+def safe_str(field):
+    try:
+        return str(field)
+    except ValueError:
+        return ''
 
 def convert_latitude(field):
     return safe_float(field[0:2]) + safe_float(field[2:]) / 60.0
@@ -59,6 +64,25 @@ def convert_latitude(field):
 
 def convert_longitude(field):
     return safe_float(field[0:3]) + safe_float(field[3:]) / 60.0
+
+def convert_utc_seconds(nmea_utc):
+    """
+    Extract from a NMEA time string the number of seconds since midnight. This time string appears
+    in GGA messages and has the form HHMMSS[.SS] where HH is the number of hours [0,24),
+    MM is the number of minutes [0,60), and SS[.SS] is the number of seconds [0,60) of the time.
+    """
+    if not nmea_utc[0:2] or not nmea_utc[2:4] or not nmea_utc[4:6]:
+        return float('NaN')
+
+    hours = float(nmea_utc[0:2])
+    minutes = float(nmea_utc[2:4])
+    seconds = float(nmea_utc[4:6])
+    nanosecs = 0
+    # If the seconds includes a decimal portion, convert it to nanoseconds
+    if len(nmea_utc) > 7:
+        nanosecs = float(nmea_utc[7:]) * pow(10, 9 - len(nmea_utc[7:]))
+
+    return hours * 3600 + minutes * 60 + seconds + nanosecs * 1e-9
 
 
 def convert_time(nmea_utc):
@@ -169,10 +193,16 @@ parse_maps = {
         ("longitude", convert_longitude, 4),
         ("longitude_direction", str, 5),
         ("altitude", safe_float, 9),
+        ("altitude_units", str, 10),
         ("mean_sea_level", safe_float, 11),
         ("hdop", safe_float, 8),
         ("num_satellites", safe_int, 7),
         ("utc_time", convert_time, 1),
+        ("utc_seconds", convert_utc_seconds, 1),
+        ("undulation", safe_float, 11),
+        ("undulation_units", str, 12),
+        ("diff_age", safe_float, 13),
+        ("station_id", safe_str, 14),
     ],
     "RMC": [
         ("fix_valid", convert_status_flag, 2),
@@ -211,8 +241,12 @@ def parse_nmea_sentence(nmea_sentence):
                      % repr(nmea_sentence))
         return False
     fields = [field.strip(',') for field in nmea_sentence.split(',')]
+    # The last field will contain the checksum with a '*' before it
+    last_field = fields[-1]
+    fields[-1] = last_field.split('*')[0]
 
     # Ignore the $ and talker ID portions (e.g. GP)
+    talker_id = fields[0][1:3]
     sentence_type = fields[0][3:]
 
     if sentence_type not in parse_maps:
@@ -228,5 +262,6 @@ def parse_nmea_sentence(nmea_sentence):
 
     if sentence_type == "RMC":
         parsed_sentence["utc_time"] = convert_time_rmc(fields[9], fields[1])
+    parsed_sentence['talker_id'] = talker_id
 
     return {sentence_type: parsed_sentence}
